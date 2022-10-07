@@ -43,6 +43,8 @@ typedef struct msgbuf {
 } data_buf;
 
 typedef struct argu {
+	int msqid_tcp;
+	int msqid_mqtt;
 	char device_name[SIZE];
 	char server_addr[SIZE];
 	char uart_device[SIZE];
@@ -59,7 +61,6 @@ volatile MQTTClient_deliveryToken deliveredtoken;
 // MQTT processing
 void delivered(void *context, MQTTClient_deliveryToken dt)
 {
-    //printf("##Message with token value %d delivery confirmed\n", dt);
     deliveredtoken = dt;
 }
 
@@ -83,8 +84,6 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
 
 void connlost(void *context, char *cause)
 {
-    //printf("\nConnection lost\n");
-    //printf("     cause: %s\n", cause);
 }
 
 void *thMqttProc(void* argv)
@@ -98,21 +97,14 @@ void *thMqttProc(void* argv)
 	char addr[MAX];
 	int count = 0;
 	char sBuf[MAX];
-
-	int msqid;
+	int msqid = argu->msqid_mqtt;
+	
 	key_t key = MSG_KEYID_MQTT;
 	data_buf  rbuf;
 
 	printf("Hello I am MQTT Thread...\r\n");
 
 	sprintf(addr, "%s%s%s", MQTT_ADDRESS, (char*)argu->server_addr, MQTT_PORT);
-	
-	if ((msqid = msgget(key, 0666)) < 0) {
-		perror("[thMqtt] msgget");
-		exit(1);
-	}else{ 
-		(void) fprintf(stderr,"[thMqtt] msgget: msgget succeeded: msqid = %d\n", msqid);
-	}
 	
     MQTTClient_create(&client, addr, argu->device_name, MQTTCLIENT_PERSISTENCE_NONE, NULL);
     
@@ -199,10 +191,8 @@ int uartInit(char *device_name)
 void *thUartProc(void* argv)
 {
 	str_argu  *argu = (str_argu*)argv;
-	int msqid_mqtt;
-	int msgflg = IPC_CREAT | 0666;
-	key_t key_mqtt = MSG_KEYID_MQTT;
-	int msqid_tcp;
+	int msqid_mqtt = argu->msqid_mqtt;
+	int msqid_tcp = argu->msqid_tcp;
 	key_t key_tcp = MSG_KEYID_TCP;
 	data_buf sbuf;
 	int sfd;
@@ -212,24 +202,8 @@ void *thUartProc(void* argv)
     int     reqlen = 79;
     int     rdlen;
 	
-	pthread_mutex_lock(&lock);
 	printf("Hello I am UART Thread...\r\n");
 	
-	if ((msqid_mqtt = msgget(key_mqtt, msgflg )) < 0) {
-		perror("[thUart] msgget");
-		exit(1);
-	} else{ 
-		printf("[thUart] msgget: msgget succeeded: msqid = %d\n", msqid_mqtt);
-	}
-
-	if ((msqid_tcp = msgget(key_tcp, msgflg )) < 0) {
-		perror("[thUart] msgget");
-		exit(1);
-	} else{ 
-		printf("[thUart] msgget: msgget succeeded: msqid = %d\n", msqid_tcp);
-	}
-	pthread_mutex_unlock(&lock);
-
 	//send message type 1
 	sbuf.mtype = 1;
 
@@ -298,7 +272,7 @@ void *thTcpProc(void *argv)
 	int count = 0;
 	char sBuf[MAX];
 
-	int msqid;
+	int msqid = argu->msqid_tcp;
 	key_t key = MSG_KEYID_TCP;
 	data_buf  rbuf;
 
@@ -307,13 +281,6 @@ void *thTcpProc(void *argv)
 
 	printf("Hello I am TCP Thread...\r\n");
 
-	if ((msqid = msgget(key, 0666)) < 0) {
-		perror("[thTcp] msgget");
-		exit(1);
-	}else{ 
-		(void) fprintf(stderr,"[thTcp] msgget: msgget succeeded: msqid = %d\n", msqid);
-	}
-	
 	printf("[TCP] server:%s, Port:%s\r\n", argu->server_addr, argu->device_name);
 	// socket create and verification
 	sockfd = socket(AF_INET, SOCK_STREAM, 0);
@@ -365,6 +332,9 @@ int main(int argc, char* argv[])
 	int ret_val_t1;
 	int ret_val_t2;
 	int ret_val_t3;
+	key_t key_mqtt = MSG_KEYID_MQTT;
+	key_t key_tcp = MSG_KEYID_TCP;
+	int msgflg = IPC_CREAT | 0666;
 
 	if( argc != 4 )
 	{
@@ -372,9 +342,25 @@ int main(int argc, char* argv[])
 		exit(1);
 	}
 
+	printf("Hello and Welcome...\r\n");
+
 	strcpy(argu.server_addr, argv[1]);
 	strcpy(argu.device_name, argv[2]);
 	strcpy(argu.uart_device, argv[3]);
+
+	if ((argu.msqid_mqtt = msgget(key_mqtt, msgflg )) < 0) {
+		perror("[thUart] msgget");
+		exit(1);
+	} else{ 
+		printf("[thUart] msgget: msgget succeeded: msqid = %d\n", argu.msqid_mqtt);
+	}
+
+	if ((argu.msqid_tcp = msgget(key_tcp, msgflg )) < 0) {
+		perror("[thUart] msgget");
+		exit(1);
+	} else{ 
+		printf("[thUart] msgget: msgget succeeded: msqid = %d\n", argu.msqid_tcp);
+	}
 
 	//create thUart
 	ret_val_t1 = pthread_create( &thUart, NULL, thUartProc, &argu);
@@ -410,4 +396,5 @@ int main(int argc, char* argv[])
 
 	exit(EXIT_SUCCESS);
 }
-	
+
+// end of file
